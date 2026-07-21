@@ -1,37 +1,18 @@
-/* Ciel · Corbion — service worker
-   Stratégie : cache du shell applicatif, réseau d'abord pour les données. */
-const CACHE = "ciel-corbion-v1";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
-
-self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
-});
-
-self.addEventListener("activate", e => {
-  e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener("fetch", e => {
-  const req = e.request;
-  if (req.method !== "GET") return;
-  const url = new URL(req.url);
-
-  // Les données météo/air/radar/tuiles : toujours réseau (jamais de cache périmé).
-  const liveHosts = ["open-meteo.com", "rainviewer.com", "tile.openstreetmap.org", "lightningmaps.org"];
-  if (liveHosts.some(h => url.hostname.includes(h))) {
-    e.respondWith(fetch(req).catch(() => caches.match(req)));
+const CACHE="ciel-v2";
+const SHELL=["./","./index.html","./manifest.webmanifest","./icon.svg"];
+self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));});
+self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
+self.addEventListener("fetch",e=>{
+  if(e.request.method!=="GET")return;
+  const u=new URL(e.request.url);
+  // Données live : toujours réseau
+  const live=["open-meteo.com","rainviewer.com","tile.openstreetmap.org","swpc.noaa.gov","iss-api"];
+  if(live.some(h=>u.hostname.includes(h))){e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));return;}
+  // HTML principal : réseau d'abord (pour que les mises à jour s'affichent tout de suite)
+  if(u.pathname.endsWith("/") || u.pathname.endsWith(".html")){
+    e.respondWith(fetch(e.request).then(r=>{const c=r.clone();caches.open(CACHE).then(ca=>ca.put(e.request,c));return r;}).catch(()=>caches.match(e.request)));
     return;
   }
-
-  // Shell + CDN (fonts, leaflet, suncalc) : cache d'abord, réseau en secours.
-  e.respondWith(
-    caches.match(req).then(hit => hit || fetch(req).then(res => {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
-      return res;
-    }).catch(() => hit))
-  );
+  // Reste (fonts, libs, icône) : cache d'abord
+  e.respondWith(caches.match(e.request).then(hit=>hit||fetch(e.request).then(r=>{const c=r.clone();caches.open(CACHE).then(ca=>ca.put(e.request,c));return r;}).catch(()=>hit)));
 });
