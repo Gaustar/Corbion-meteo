@@ -1,18 +1,10 @@
-const CACHE="ciel-v2";
-const SHELL=["./","./index.html","./manifest.webmanifest","./icon.svg"];
-self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()));});
-self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
-self.addEventListener("fetch",e=>{
-  if(e.request.method!=="GET")return;
-  const u=new URL(e.request.url);
-  // Données live : toujours réseau
-  const live=["open-meteo.com","rainviewer.com","tile.openstreetmap.org","swpc.noaa.gov","iss-api","nominatim.openstreetmap.org"];
-  if(live.some(h=>u.hostname.includes(h))){e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));return;}
-  // HTML principal : réseau d'abord (pour que les mises à jour s'affichent tout de suite)
-  if(u.pathname.endsWith("/") || u.pathname.endsWith(".html")){
-    e.respondWith(fetch(e.request).then(r=>{const c=r.clone();caches.open(CACHE).then(ca=>ca.put(e.request,c));return r;}).catch(()=>caches.match(e.request)));
-    return;
-  }
-  // Reste (fonts, libs, icône) : cache d'abord
-  e.respondWith(caches.match(e.request).then(hit=>hit||fetch(e.request).then(r=>{const c=r.clone();caches.open(CACHE).then(ca=>ca.put(e.request,c));return r;}).catch(()=>hit)));
+const CACHE_NAME = 'skystation-v1';
+const urlsToCache = ['./', './index.html', './manifest.webmanifest'];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
+});
+
+self.addEventListener('fetch', e => {
+  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
 });
