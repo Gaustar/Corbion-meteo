@@ -240,7 +240,7 @@ a{color:var(--color-accent)}
 .search-input:focus{outline:2px solid var(--color-accent);outline-offset:-1px}
 .search-gps{width:100%;margin:8px 0;background:var(--color-card-alt);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:12px;font:inherit;color:var(--color-accent);cursor:pointer;font-weight:600;font-size:13.5px;display:flex;align-items:center;justify-content:center;gap:8px}
 .search-results{max-height:240px;overflow-y:auto;margin-top:8px}
-.search-result{padding:12px 8px;border-top:1px solid var(--color-border);cursor:pointer;font-size:14px}.search-result:first-child{border-top:0}
+.search-result{display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--color-border);padding:12px 8px;cursor:pointer;font:inherit;font-size:14px;color:var(--color-text)}.search-result:first-child{border-top:0}
 .search-result:active{background:var(--color-card-alt)}
 .search-result b{font-weight:600;display:block;overflow-wrap:break-word}
 .search-result small{color:var(--color-faint);font-size:12px}
@@ -500,6 +500,18 @@ function hourIndex(times) {
 
 function isNightTime(date) { const h = date.getHours(); return h >= 22 || h < 6; }
 
+/* Date locale au format YYYY-MM-DD (jamais UTC — évite le décalage toISOString) */
+function localDateStr(date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/* Trouve l'index d'« aujourd'hui » dans data.daily.time, quel que soit past_days.
+   Fallback : suppose que les 7 derniers jours du tableau sont les jours à venir. */
+function todayDailyIndex(dailyTimes) {
+  const idx = dailyTimes.indexOf(localDateStr(new Date()));
+  return idx >= 0 ? idx : Math.max(0, dailyTimes.length - 7);
+}
+
 function canGoOutside(entry) {
   return entry.precipProb < 30 && entry.precipMm < 0.3 && entry.gustKmh < 40 && entry.tempC >= 8;
 }
@@ -671,7 +683,7 @@ async function searchNominatim(query) {
     resultsEl.innerHTML = results.map((r, i) => {
       const name = r.name || r.display_name?.split(",")[0] || "Lieu";
       const detail = r.display_name || "";
-      return `<div class="search-result" onclick='selectSearchResult(${i})' role="button" tabindex="0" aria-label="${name}"><b>${name}</b><small>${detail}</small></div>`;
+      return `<button type="button" class="search-result" onclick='selectSearchResult(${i})' aria-label="${name}"><b>${name}</b><small>${detail}</small></button>`;
     }).join("");
     window._searchResults = results;
   } catch (e) {
@@ -749,14 +761,17 @@ async function loadForecast(place) {
     state.forecastData = data;
     state.cloudCover = data.current.cloud_cover;
     state.lastUpdate = new Date();
+    // Index d'aujourd'hui dans data.daily — indispensable depuis l'ajout de past_days=14
+    const todayIdx = todayDailyIndex(data.daily.time);
+    state.todayIdx = todayIdx;
     $("#heroUpdated").textContent = `Mis à jour à ${formatTime(state.lastUpdate)}`;
     safeRender("#heroCond", () => renderHero(data));
     safeRender("#glanceWind", () => renderGlanceWind(data));
-    safeRender("#windCard", () => renderWindCard(data));
+    safeRender("#windCard", () => renderWindCard(data, todayIdx));
     safeRender("#hours24", () => renderHours24(data));
-    safeRender("#alertsContainer", () => renderAlerts(data));
+    safeRender("#alertsContainer", () => renderAlerts(data, todayIdx));
     safeRender("#skyConditions", () => renderSkyConditions(data));
-    safeRender("#rainTracker", () => renderRainTracker(data));
+    safeRender("#rainTracker", () => renderRainTracker(data, todayIdx));
     renderSkyGradient(place);
     renderForecastTab();
   } catch (error) {
@@ -815,7 +830,6 @@ function renderHero(data) {
   const current = data.current;
   $("#heroTemp").textContent = Math.round(current.temperature_2m);
   const isDay = current.is_day === 1;
-  const iconKey = weatherIconKey(current.weather_code, isDay);
   $("#heroCond").innerHTML = `${weatherLabel(current.weather_code)} <span>· ressenti ${Math.round(current.apparent_temperature)}°</span>`;
   $("#heroAstre").className = "hero-astre " + (isDay ? "is-sun" : "is-moon");
 }
@@ -867,13 +881,13 @@ function renderGlanceAir(data) {
 }
 
 /* ============ RENDU — VENT (texte pur) ============ */
-function renderWindCard(data) {
+function renderWindCard(data, todayIdx) {
   const c = data.current;
   const direction = c.wind_direction_10m;
   const speed = Math.round(c.wind_speed_10m);
   const gusts = Math.round(c.wind_gusts_10m);
   const bft = beaufortScale(speed);
-  const dominant = data.daily.wind_direction_10m_dominant?.[0];
+  const dominant = data.daily.wind_direction_10m_dominant?.[todayIdx];
   const dominantLabel = dominant != null ? compassFull(dominant) : "—";
   // Sparkline rafales 24h
   const hourly = data.hourly;
@@ -944,11 +958,11 @@ function renderAirPollens(data) {
 }
 
 /* ============ RENDU — ALERTES (dont pluie réserves) ============ */
-function renderAlerts(data) {
+function renderAlerts(data, todayIdx) {
   const today = data.daily;
   const items = [];
-  const gust = today.wind_gusts_10m_max[0], tmax = today.temperature_2m_max[0], tmin = today.temperature_2m_min[0];
-  const rain = today.precipitation_sum[0], uv = today.uv_index_max[0], code = today.weather_code[0];
+  const gust = today.wind_gusts_10m_max[todayIdx], tmax = today.temperature_2m_max[todayIdx], tmin = today.temperature_2m_min[todayIdx];
+  const rain = today.precipitation_sum[todayIdx], uv = today.uv_index_max[todayIdx], code = today.weather_code[todayIdx];
 
   // Alerte pluie réserves : ≥ 2mm dans les 24h
   const hourly = data.hourly;
@@ -990,11 +1004,17 @@ function renderHours24(data) {
   const hourly = data.hourly;
   const idx = hourIndex(hourly.time);
   if (idx < 0) return;
+  const place = getActivePlace();
   let html = "";
   for (let i = idx; i < Math.min(idx + 24, hourly.time.length); i++) {
     const dt = new Date(hourly.time[i]);
     const precip = hourly.precipitation_probability?.[i];
-    const isDay = hourly.uv_index?.[i] > 0 || (dt.getHours() >= 7 && dt.getHours() <= 20);
+    // Jour/nuit réels via lever/coucher du soleil du lieu, plutôt qu'une fenêtre fixe
+    let isDay = true;
+    try {
+      const sunTimes = SunCalc.getTimes(dt, place.lat, place.lon);
+      isDay = dt >= sunTimes.sunrise && dt <= sunTimes.sunset;
+    } catch (e) { isDay = dt.getHours() >= 7 && dt.getHours() <= 20; }
     const label = dt.getHours() === 0 ? `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}` : `${pad(dt.getHours())}h`;
     html += `<div class="hour-col"><div class="hour-time">${label}</div><div class="hour-icon">${svgIcon(weatherIconKey(hourly.weather_code[i], isDay), 20)}</div><div class="hour-temp tabular">${Math.round(hourly.temperature_2m[i])}°</div><div class="hour-precip">${precip >= 15 ? precip + "%" : ""}</div></div>`;
   }
@@ -1215,9 +1235,7 @@ function showHourDetail(k) {
 function renderDailyForecast() {
   const daily = state.forecastData.daily;
   // Trouver aujourd'hui dans les données (past_days=14 décale les indices)
-  const todayStr = new Date().toISOString().slice(0, 10);
-  let startIdx = daily.time.indexOf(todayStr);
-  if (startIdx < 0) startIdx = Math.max(0, daily.time.length - 7);
+  const startIdx = state.todayIdx ?? todayDailyIndex(daily.time);
   const slice = { time: daily.time.slice(startIdx, startIdx + 7), code: daily.weather_code.slice(startIdx, startIdx + 7), lo: daily.temperature_2m_min.slice(startIdx, startIdx + 7), hi: daily.temperature_2m_max.slice(startIdx, startIdx + 7), rain: daily.precipitation_sum.slice(startIdx, startIdx + 7), gust: daily.wind_gusts_10m_max.slice(startIdx, startIdx + 7), uv: daily.uv_index_max.slice(startIdx, startIdx + 7) };
   let mn = Math.min(...slice.lo), mx = Math.max(...slice.hi);
   const sp = (mx - mn) || 1;
@@ -1234,12 +1252,10 @@ function renderDailyForecast() {
 }
 
 /* ============ RENDU — PLUIE & RÉSERVES ============ */
-function renderRainTracker(data) {
+function renderRainTracker(data, todayIdx) {
   const daily = data.daily;
   const hourly = data.hourly;
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const todayIdx = daily.time.indexOf(todayStr);
-  if (todayIdx < 0) { $("#rainTracker").innerHTML = `<p class="error-text">Données insuffisantes.</p>`; return; }
+  if (todayIdx == null || todayIdx < 0) { $("#rainTracker").innerHTML = `<p class="error-text">Données insuffisantes.</p>`; return; }
 
   // Compteur de sécheresse (jours consécutifs sans ≥ 2mm, en remontant dans le passé)
   let dryStreak = 0;
@@ -1591,7 +1607,7 @@ function switchTab(name, button) {
   if (!place) return;
   if (name === "rain" && !state.rainTabInit) { state.rainTabInit = true; initRadar(place); }
   else if (name === "rain" && radar.map) setTimeout(() => radar.map.invalidateSize(), 80);
-  if (name === "astro" && !state.astroTabInit) { state.astroTabInit = true; loadKpIndex(); loadISSPasses(place); renderAstroEvents(place); }
+  if (name === "astro" && !state.astroTabInit) { state.astroTabInit = true; loadKpIndex(); loadISSPasses(place); }
 }
 
 /* ============ DÉMARRAGE ============ */

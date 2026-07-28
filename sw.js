@@ -6,7 +6,7 @@ self.addEventListener("fetch",e=>{
   if(e.request.method!=="GET")return;
   const u=new URL(e.request.url);
   // Données live : toujours réseau
-  const live=["open-meteo.com","rainviewer.com","tile.openstreetmap.org","swpc.noaa.gov","iss-api"];
+  const live=["open-meteo.com","rainviewer.com","tile.openstreetmap.org","swpc.noaa.gov","iss-api","nominatim.openstreetmap.org"];
   if(live.some(h=>u.hostname.includes(h))){e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));return;}
   // HTML principal : réseau d'abord (pour que les mises à jour s'affichent tout de suite)
   if(u.pathname.endsWith("/") || u.pathname.endsWith(".html")){
